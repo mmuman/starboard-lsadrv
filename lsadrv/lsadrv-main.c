@@ -68,7 +68,7 @@ static struct usb_driver lsadrv_driver =
 	.id_table =		lsadrv_device_table,
 	.probe =		usb_lsadrv_probe,	/* probe() */
 	.disconnect =		usb_lsadrv_disconnect,	/* disconnect() */
-	.ioctl =		usb_lsadrv_ioctl	/* through usbdevfs (devio) driver */
+	.unlocked_ioctl =		usb_lsadrv_ioctl	/* through usbdevfs (devio) driver */
 };
 #else
 static struct usb_driver lsadrv_driver =
@@ -259,7 +259,7 @@ static int usb_lsadrv_probe(struct usb_interface *intf, const struct usb_device_
 
 	xdev->udev = udev;
 	lsadrv_spin_lock_init(&xdev->streamLock);
-	init_MUTEX(&xdev->modlock); 
+	sema_init(&xdev->modlock, 1); 
 	init_waitqueue_head(&xdev->remove_ok);
 
 	/* set ids as input device */
@@ -533,7 +533,7 @@ static int __init usb_lsadrv_init(void)
 	}
 
 	Debug("init_Mutex\n");
-	init_MUTEX(&device_list_lock); 
+	sema_init(&device_list_lock, 1); 
 
 	/*** create procfs directory and 'devices' file ***/
 	Debug("creating procfs\n");
