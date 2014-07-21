@@ -1,3 +1,5 @@
+*.cmd
+
 # Object files
 *.o
 *.ko
