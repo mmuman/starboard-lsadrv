@@ -24,12 +24,13 @@
 #endif
 
 #include <linux/kernel.h> 	/* for linux kernel */
-#include <linux/slab.h> 	/* for linux kernel */
+#include <linux/slab.h> 	/* for kmalloc */
 #include "fakemouse.h"
 #include <linux/module.h> 	/* for linux kernel module */
 #include <linux/proc_fs.h> 	/* for use of /proc */
 #include <linux/input.h>	/* for input devide */
 #include <linux/kmod.h>		/* for request_module */
+#include <linux/seq_file.h>	/* for single_open */
 #include <linux/usbdevice_fs.h>		/* for USBDEVFS_HUB_PORTINFO */
 #include <linux/errno.h>
 #include <linux/version.h>
@@ -405,12 +406,10 @@ static struct lsadrv_proc_files {
 	//struct proc_dir_entry *mappingDirEntry;		/* procfs/driver/lsadrv/X-X:X */
 } lsadrv_files;
 
-/*** read operation handler for 'devices' file ***/
-static int
-lsadrv_read_devices(char *page, char **start, off_t offset, int count, int *eof, void *data)
+
+/*** seq_file show operation for 'devices' file ***/
+static int lsadrv_devices_show(struct seq_file *m, void *v)
 {
-	int len;
-	char *out = page;
 	struct list_head *tmp;
 
 	down(&device_list_lock);
@@ -418,24 +417,20 @@ lsadrv_read_devices(char *page, char **start, off_t offset, int count, int *eof,
 	while (tmp != &device_list) {
 		struct lsadrv_device *xdev = list_entry(tmp, struct lsadrv_device, device_list);
 		tmp = tmp->next;
-		out += sprintf(out, "%03d/%03d\n", xdev->udev->bus->busnum, xdev->udev->devnum);
+		seq_printf(m, "%03d/%03d\n", xdev->udev->bus->busnum, xdev->udev->devnum);
 	}
 	up(&device_list_lock);
-	len = out - page;
-	len -= offset;
-	if (len < count) {
-		*eof = 1;
-		if (len <= 0) {
-			return 0;
-		}
-	} else {
-		len = count;
-	}
-
-	*start = page + offset;
-
-	return len;
+	return 0;
 }
+
+
+/*** open operation handler for 'devices' file ***/
+static int lsadrv_devices_open(struct inode *inode, struct file *file)
+{
+	/* should use seq_open() but this should be sufficient for the need */
+	return single_open(file, lsadrv_devices_show, NULL);
+}
+
 
 /*** remove procfs files and directory ***/
 static void lsadrv_remove_procfs_dir(void)
@@ -456,16 +451,20 @@ static void lsadrv_remove_procfs_dir(void)
 static void lsadrv_create_procfs_dir(void)
 {
 	struct lsadrv_proc_files *files = &lsadrv_files;
+	static struct file_operations proc_fops = {
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 31)
+			.owner    = THIS_MODULE,
+#endif
+			.open     = lsadrv_devices_open,
+			.read     = seq_read,
+			.llseek   = seq_lseek,
+			.release  = seq_release
+	};
 	/* Make procfs/driver/lsadrv directory */
 /*	files->lsadrvDirEntry = create_proc_entry("lsadrv", S_IFDIR, proc_root_driver);*/
 #if LINUX_VERSION_CODE < KERNEL_VERSION(3, 10, 0)
 	files->lsadrvDirEntry = create_proc_entry("driver/lsadrv", S_IFDIR, NULL);
 #else
-	static struct file_operations proc_fops = {
-		        .owner    = THIS_MODULE,
-			.read     = lsadrv_read_devices,
-			.write    = NULL,
-	};
 
 	files->lsadrvDirEntry = proc_mkdir("driver/lsadrv", NULL);
 #endif
@@ -488,8 +487,7 @@ static void lsadrv_create_procfs_dir(void)
 	files->devicesFileEntry->owner = THIS_MODULE;
 #endif
 	files->devicesFileEntry->data = NULL;
-	files->devicesFileEntry->read_proc = lsadrv_read_devices;
-	files->devicesFileEntry->write_proc = NULL;
+	files->devicesFileEntry->proc_fops = &proc_fops;
 #else
 	files->devicesFileEntry = proc_create("devices",
 			S_IFREG|S_IRUGO,
