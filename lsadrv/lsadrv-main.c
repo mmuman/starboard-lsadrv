@@ -24,6 +24,7 @@
 #endif
 
 #include <linux/kernel.h> 	/* for linux kernel */
+#include <linux/slab.h> 	/* for linux kernel */
 #include "fakemouse.h"
 #include <linux/module.h> 	/* for linux kernel module */
 #include <linux/proc_fs.h> 	/* for use of /proc */
@@ -457,7 +458,17 @@ static void lsadrv_create_procfs_dir(void)
 	struct lsadrv_proc_files *files = &lsadrv_files;
 	/* Make procfs/driver/lsadrv directory */
 /*	files->lsadrvDirEntry = create_proc_entry("lsadrv", S_IFDIR, proc_root_driver);*/
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 10, 0)
 	files->lsadrvDirEntry = create_proc_entry("driver/lsadrv", S_IFDIR, NULL);
+#else
+	static struct file_operations proc_fops = {
+		        .owner    = THIS_MODULE,
+			.read     = lsadrv_read_devices,
+			.write    = NULL,
+	};
+
+	files->lsadrvDirEntry = proc_mkdir("driver/lsadrv", NULL);
+#endif
 	if (files->lsadrvDirEntry == NULL) {
 		return;
 	}
@@ -465,6 +476,7 @@ static void lsadrv_create_procfs_dir(void)
 	files->lsadrvDirEntry->owner = THIS_MODULE;
 #endif
 	/* procfs/driver/lsadrv/devices file */
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 10, 0)
 	files->devicesFileEntry = create_proc_entry("devices",
 							   S_IFREG|S_IRUGO,
 							   files->lsadrvDirEntry);
@@ -478,6 +490,17 @@ static void lsadrv_create_procfs_dir(void)
 	files->devicesFileEntry->data = NULL;
 	files->devicesFileEntry->read_proc = lsadrv_read_devices;
 	files->devicesFileEntry->write_proc = NULL;
+#else
+	files->devicesFileEntry = proc_create("devices",
+			S_IFREG|S_IRUGO,
+			files->lsadrvDirEntry,
+			&proc_fops
+			);
+	if (files->devicesFileEntry == NULL) {
+		lsadrv_remove_procfs_dir();
+		return;
+	}
+#endif
 }
 
 /***************************************************************************
