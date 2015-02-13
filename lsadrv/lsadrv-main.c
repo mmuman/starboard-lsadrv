@@ -354,7 +354,7 @@ static int usb_lsadrv_ioctl(struct usb_interface *intf, unsigned int cmd, void *
 	struct lsadrv_device *xdev = (struct lsadrv_device *) usb_get_intfdata(intf);
 	int ret = 0;
 
-	Trace(LSADRV_TRACE_IOCTL, ">>lsadrv_ioctl(%d)\n", _IOC_NR(cmd));
+	Trace(LSADRV_TRACE_IOCTL, ">>lsadrv_ioctl(%d) size=%d\n", _IOC_NR(cmd), _IOC_SIZE(cmd));
 
 	if (arg == NULL && _IOC_DIR(cmd) != _IOC_NONE && _IOC_SIZE(cmd) != 0) {
 		Err("ioctl: arg is NULL: cmd=0x%x\n", cmd);
