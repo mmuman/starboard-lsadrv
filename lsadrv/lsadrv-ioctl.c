@@ -18,6 +18,9 @@
  * 
  ============================================================================*/
 
+#include <linux/compat.h> 	/* for 32bit compatibility */
+#include <linux/slab.h>		/* for kmalloc */
+
 #include "lsadrv.h"
 #include "lsadrv-ioctl.h"
 #include "lsadrv-vkey.h"
@@ -46,6 +49,55 @@ static int lsadrv_ioctl_check(struct lsadrv_device *xdev, void *arg);
 static int lsadrv_ioctl_get_last_error(struct lsadrv_device *xdev, void *arg);
 static int lsadrv_ioctl_get_current_frame_number(struct lsadrv_device *xdev, void *arg);
 
+#ifdef CONFIG_COMPAT
+
+/***************************************************************************/
+/* 32bit compatibility */
+
+struct compat_lsadrv_bulk_transfer_control
+{
+	unsigned int ep;
+	unsigned int len;
+	unsigned int timeout; /* in milliseconds */
+	compat_caddr_t data; /* (void *) */
+} __attribute__ ((packed));
+
+struct compat_lsadrv_control_transfer_control
+{
+	u_int8_t  requesttype;
+	u_int8_t  request;
+	u_int16_t value;
+	u_int16_t index;
+	u_int16_t length;
+	u_int32_t timeout;  /* in milliseconds */
+	compat_caddr_t data; /* (void *) */
+} __attribute__ ((packed));
+
+struct compat_lsadrv_iso_read_control
+{
+	unsigned int PacketSize;
+	unsigned int PacketCount;
+	/* Timeout for reading ISO buffer (msec) */
+	unsigned int Timeout;
+	compat_caddr_t buffer; /* (unsigned char *) */
+	unsigned int  bufferSize;	/* IN: buffer sizer */
+		/* buffer size = (PacketSize + sizeof(struct lsadrv_iso_packet_desc)) * PacketCount */
+} __attribute__ ((packed));
+
+#define LSADRV_IOC_CONTROL32			_IOW(LSADRV_IOC_MAGIC, \
+							LSADRV_IOCTL_BASE + 8, \
+							struct compat_lsadrv_control_transfer_control)
+
+#define LSADRV_IOC_BULK32				_IOW(LSADRV_IOC_MAGIC, \
+							LSADRV_IOCTL_BASE + 9, \
+							struct compat_lsadrv_bulk_transfer_control)
+
+#define LSADRV_IOC_READ_ISO_BUFFER32	_IOW(LSADRV_IOC_MAGIC, \
+							LSADRV_IOCTL_BASE + 18, \
+							struct compat_lsadrv_iso_read_control)
+
+#endif /* CONFIG_COMPAT */
+
 /***************************************************************************/
 /* Private functions */
 
@@ -53,6 +105,7 @@ static int lsadrv_ioctl_get_current_frame_number(struct lsadrv_device *xdev, voi
 int lsadrv_usb_ioctl(struct lsadrv_device *xdev, unsigned int cmd, void *arg)
 {
 	int ret = 0;
+	void *karg = NULL;
 
 	lsadrv_modlock(xdev);
 	if (xdev->unplugged) {
@@ -159,6 +212,76 @@ int lsadrv_usb_ioctl(struct lsadrv_device *xdev, unsigned int cmd, void *arg)
 			ret = lsadrv_ioctl_keybdevent(xdev, arg);
 			break;
 
+#ifdef CONFIG_COMPAT
+		/* 32bit compatibility */
+		/* no need for get_user/put_user here */
+
+		/* vendor or class request */
+		case LSADRV_IOC_CONTROL32:
+		{
+			struct compat_lsadrv_control_transfer_control *ua32 = arg;
+			struct lsadrv_control_transfer_control *a;
+
+			Trace(LSADRV_TRACE_IOCTL, "LSADRV_IOC_CONTROL32\n");
+			a = karg = kmalloc(sizeof(*a), GFP_KERNEL);
+			if (!karg)
+				return -ENOMEM;
+
+			a->requesttype = ua32->requesttype;
+			a->request = ua32->request;
+			a->value = ua32->value;
+			a->index = ua32->index;
+			a->length = ua32->length;
+			a->timeout = ua32->timeout;
+			a->data = compat_ptr(ua32->data);
+
+			ret = lsadrv_ioctl_control(xdev, a);
+			break;
+		}
+
+		/* perform an IN/OUT transfer over the specified bulk or interrupt pipe */
+		case LSADRV_IOC_BULK32:
+		{
+			struct compat_lsadrv_bulk_transfer_control *ua32 = arg;
+			struct lsadrv_bulk_transfer_control *a;
+
+			Trace(LSADRV_TRACE_IOCTL, "LSADRV_IOC_BULK32\n");
+			a = karg = kmalloc(sizeof(*a), GFP_KERNEL);
+			if (!karg)
+				return -ENOMEM;
+
+			a->ep = ua32->ep;
+			a->len = ua32->len;
+			a->timeout = ua32->timeout;
+			a->data = compat_ptr(ua32->data);
+
+			ret = lsadrv_ioctl_bulk(xdev, a);
+			break;
+		}
+
+		/* read data from isochronous stream data buffer */
+		case LSADRV_IOC_READ_ISO_BUFFER32:
+		{
+			struct compat_lsadrv_iso_read_control *ua32 = arg;
+			struct lsadrv_iso_read_control *a;
+
+			Trace(LSADRV_TRACE_IOCTL, "LSADRV_IOC_READ_ISO_BUFFER32\n");
+			a = karg = kmalloc(sizeof(*a), GFP_KERNEL);
+			if (!karg)
+				return -ENOMEM;
+
+			a->PacketSize = ua32->PacketSize;
+			a->PacketCount = ua32->PacketCount;
+			a->Timeout = ua32->Timeout;
+			a->buffer = compat_ptr(ua32->buffer);
+			a->bufferSize = ua32->bufferSize;
+
+			ret = lsadrv_ioctl_read_iso_buffer(xdev, a);
+			break;
+		}
+
+#endif /* CONFIG_COMPAT */
+
 		default:
 			/* get configuration descriptor */
 			if ((cmd & ~IOCSIZE_MASK) == LSADRV_IOC_GET_CONFIGURATION_DESCRIPTOR(0)) {
@@ -169,6 +292,8 @@ int lsadrv_usb_ioctl(struct lsadrv_device *xdev, unsigned int cmd, void *arg)
 			ret = -EINVAL;
 			break;
 	} /* ..switch (cmd) */
+
+	kfree(karg);
 
 l_ret:
 	return ret;
