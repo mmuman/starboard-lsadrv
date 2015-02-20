@@ -16,6 +16,10 @@ Either run those steps manually or as a script (not yet fully tested).
 #!/bin/sh -e
 # -e stops at first failing command
 
+# install all the needed 32bit packages for the StarBoard software to run
+# libjpeg62 is declared as dependency by the package but not the rest...
+sudo apt-get install libjpeg62:i386 libxtst6:i386 libusb-0.1-4:i386 libstdc++6:i386 libfreetype6:i386 libsm6:i386 libglib2.0-0:i386 libxrender1:i386 libfontconfig1:i386 libqtgui4:i386
+
 # get the official archive and install the .deb package
 wget http://starboard.hitachi-software.co.uk/SoftwareDownload/download/Linux/SBS0942_LINUX.zip
 unzip SBS0942_LINUX.zip
@@ -29,9 +33,8 @@ git clone https://github.com/mmuman/starboard-lsadrv.git
 cd starboard-lsadrv/lsadrv
 make
 sudo cp `uname -r`/lsadrv.ko /lib/modules/`uname -r`/kernel/drivers/usb/input/
-
-# install all the needed 32bit packages for the StarBoard software to run
-sudo apt-get install libxtst6:i386 libusb-0.1-4:i386 libstdc++6:i386 libfreetype6:i386 libsm6:i386 libglib2.0-0:i386 libxrender1:i386 libfontconfig1:i386 libqtgui4:i386
+sudo depmod
+sudo modprobe lsadrv
 
 # finish the installation by running the script manually
 sudo /usr/local/StarBoardSoftware/install.sh
